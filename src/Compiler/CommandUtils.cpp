@@ -79,27 +79,36 @@ std::vector<std::string> parseFlags(const std::string &flags) {
   return flagVect;
 }
 
-static std::string getOutputBasenameFromFlags(
+static std::string getOutputBasenameFromFlagsOrInputFilename(
+    const std::string &inputFilename,
     const std::vector<std::string> &flagVect) {
   // Get output file name from the flags.
+  std::string outputBasename;
   int num = flagVect.size();
   for (int i = 0; i < num; ++i) {
     if (flagVect[i].find("-o=", 0, 3) == 0) {
       if (flagVect[i].length() > 3) {
-        return flagVect[i].substr(3);
+        outputBasename = flagVect[i].substr(3);
+        break;
       } else
         fprintf(
             stderr, "Parsing `-o=` option, expected a name. Use default.\n");
     } else if (flagVect[i].find("-o") == 0) {
       if (i < num - 1) {
-        return flagVect[i + 1];
+        outputBasename = flagVect[i + 1];
         break;
       } else {
         fprintf(stderr, "Parsing `-o` option, expected a name. Use default.\n");
       }
     }
   }
-  return "";
+  // If no output file name, derive it from input file basename
+  if (outputBasename.empty()) {
+    std::string filename = getInputFilename(inputFilename, flagVect);
+    // Base name, strip
+    outputBasename = filename.substr(0, filename.find_last_of("."));
+  }
+  return outputBasename;
 }
 
 static EmissionTargetType getEmissionTargetFromFlags(
@@ -182,13 +191,8 @@ std::string getTargetFilename(
 
 std::string getOutputFilename(const std::string &inputFilename,
     const std::vector<std::string> &flagVect) {
-  std::string outputBasename = getOutputBasenameFromFlags(flagVect);
-  // If no output file name, derive it from input file basename
-  if (outputBasename.empty()) {
-    std::string filename = getInputFilename(inputFilename, flagVect);
-    // Base name, strip
-    outputBasename = filename.substr(0, filename.find_last_of("."));
-  }
+  std::string outputBasename =
+      getOutputBasenameFromFlagsOrInputFilename(inputFilename, flagVect);
   EmissionTargetType targetType =
       getEmissionTargetFromFlags(inputFilename, flagVect);
   return getTargetFilename(outputBasename, targetType);
@@ -207,53 +211,6 @@ std::string getModelTag(const std::vector<std::string> &flagVect) {
     }
   }
   return modelTag;
-}
-
-void applyOutputPath(std::vector<std::string> &flagVect,
-    const std::string &outputPath, const std::string &inputFilename) {
-  // If outputPath is empty, do nothing.
-  if (outputPath.empty())
-    return;
-
-  // Loop through flags to find -o option.
-  int num = flagVect.size();
-  for (int i = 0; i < num; ++i) {
-    if (flagVect[i].find("-o=", 0, 3) == 0 && flagVect[i].length() > 3) {
-      // Found -o=value format.
-      std::string outputBasename = flagVect[i].substr(3);
-      fs::path p(outputBasename);
-      fs::path parentPath = p.parent_path();
-
-      if (parentPath.empty()) {
-        // No path component, prepend outputPath.
-        fs::path newPath = fs::path(outputPath) / p.filename();
-        flagVect[i] = "-o=" + newPath.string();
-      }
-      // Otherwise path exists, leave unchanged.
-      return;
-    } else if (flagVect[i] == "-o" && i < num - 1) {
-      // Found -o value format.
-      std::string outputBasename = flagVect[i + 1];
-      fs::path p(outputBasename);
-      fs::path parentPath = p.parent_path();
-
-      if (parentPath.empty()) {
-        // No path component, prepend outputPath.
-        fs::path newPath = fs::path(outputPath) / p.filename();
-        flagVect[i + 1] = newPath.string();
-      }
-      // Otherwise path exists, leave unchanged.
-      return;
-    }
-  }
-
-  // Mo -o option found, add one based on outputPath and input basename.
-  fs::path inputPath(inputFilename);
-  std::string inputBasename = inputPath.stem().string();
-  fs::path outputFilePath = fs::path(outputPath) / inputBasename;
-
-  flagVect.push_back("-o");
-  flagVect.push_back(outputFilePath.string());
 }
 
 } // namespace onnx_mlir
